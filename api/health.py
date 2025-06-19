@@ -10,10 +10,10 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
         
         response = {
-            'status': 'Backend Online! 🚀',
-            'version': '7.1.0',
-            'endpoints': ['/api/download', '/api/health'],
-            'supported_platforms': ['tiktok', 'instagram (coming soon)', 'facebook (coming soon)']
+            'status': 'TikTok Downloader API Online! 🚀',
+            'version': '3.0.0',
+            'methods': ['Third-party APIs', 'Multiple fallbacks'],
+            'note': 'Using external services to bypass TikTok blocks'
         }
         
         self.wfile.write(json.dumps(response).encode())
