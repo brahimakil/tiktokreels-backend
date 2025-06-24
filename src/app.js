@@ -5,6 +5,30 @@ const path = require('path');
 const app = express();
 
 // CORS Configuration - IMPORTANT: This must be before other middleware
+const getAllowedOrigins = () => {
+    const baseOrigins = [
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'http://localhost:3001',
+        'http://localhost:8080',
+        'http://127.0.0.1:5173',
+        'http://127.0.0.1:3000'
+    ];
+
+    const productionOrigins = [
+        'https://tiktokreels.vercel.app',
+        'https://tiktokreels-backend.vercel.app'
+    ];
+
+    // In production, allow both local (for testing) and production origins
+    if (process.env.NODE_ENV === 'production') {
+        return [...baseOrigins, ...productionOrigins];
+    }
+
+    // In development, be more permissive
+    return [...baseOrigins, ...productionOrigins];
+};
+
 const corsOptions = {
     origin: [
         'http://localhost:3000',   // Backend itself
@@ -13,6 +37,8 @@ const corsOptions = {
         'http://localhost:8080',   // Alternative dev port
         'http://127.0.0.1:5173',   // IPv4 version
         'http://127.0.0.1:3000',   // IPv4 version
+        'https://tiktokreels.vercel.app',           // ADD THIS LINE
+        'https://tiktokreels-backend.vercel.app'    // ADD THIS LINE
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
