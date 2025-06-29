@@ -1,14 +1,14 @@
 const express = require('express');
 const instagramController = require('../controllers/instagramController');
-const scraperMiddleware = require('../middlewares/scraperHandler');
+// const scraperMiddleware = require('../middlewares/scraperHandler'); // REMOVE
 const errorHandler = require('../middlewares/errorHandler');
 
 const router = express.Router();
 
 console.log('🔧 Setting up Instagram routes...');
 
-// Apply scraper middleware to all routes
-router.use(scraperMiddleware);
+// Don't use scraper middleware
+// router.use(scraperMiddleware); // REMOVE
 console.log('✅ Scraper middleware applied to Instagram routes');
 
 // Wrap controller functions with try-catch for proper error handling
