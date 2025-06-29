@@ -1,3 +1,6 @@
+// Disable ytdl-core updates
+process.env.YTDL_NO_UPDATE = '1';
+
 const ytdl = require('@distube/ytdl-core');
 const crypto = require('crypto');
 const axios = require('axios');
@@ -21,7 +24,7 @@ function isValidYouTubeUrl(url) {
 
 // Extract video ID from URL
 function extractVideoId(url) {
-    const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+    const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/|youtube\.com\/shorts\/)([^"&?\/\s]{11})/;
     const match = url.match(regex);
     return match ? match[1] : null;
 }
@@ -43,71 +46,54 @@ function sanitizeFilename(title) {
         || 'youtube_video';
 }
 
-// Alternative method using YouTube API (fallback)
-const getVideoInfoAlternative = async (videoId) => {
+// Alternative method using oEmbed API (works on hosted servers)
+const getVideoInfoViaOEmbed = async (videoId) => {
     try {
-        // Method 1: Try YouTube oEmbed API (no API key required)
+        console.log('🔄 Using YouTube oEmbed API...');
+        
         const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
         
         const response = await axios.get(oembedUrl, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            },
-            timeout: 10000
-        });
-
-        if (response.data) {
-            return {
-                videoId: videoId,
-                title: response.data.title,
-                author: {
-                    name: response.data.author_name,
-                    channel: response.data.author_url
-                },
-                thumbnail: response.data.thumbnail_url,
-                duration: null, // oEmbed doesn't provide duration
-                description: 'Video information retrieved via alternative method'
-            };
-        }
-    } catch (error) {
-        console.log('oEmbed method failed:', error.message);
-    }
-
-    // Method 2: Try scraping basic info from YouTube page
-    try {
-        const pageUrl = `https://www.youtube.com/watch?v=${videoId}`;
-        const response = await axios.get(pageUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json',
+                'Accept-Language': 'en-US,en;q=0.9'
             },
             timeout: 15000
         });
 
-        const html = response.data;
+        if (response.data && response.data.title) {
+            console.log('✅ oEmbed API successful');
+            return {
+                id: videoId,
+                title: response.data.title,
+                description: 'Video information retrieved via YouTube oEmbed API',
+                duration: response.data.duration || 0,
+                thumbnail: response.data.thumbnail_url || `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+                author: {
+                    name: response.data.author_name || 'Unknown',
+                    channel: response.data.author_url || `https://youtube.com/watch?v=${videoId}`
+                },
+                statistics: {
+                    views: 0, // Not available in oEmbed
+                    likes: 0  // Not available in oEmbed
+                },
+                uploadDate: 'Unknown',
+                category: 'Unknown',
+                width: response.data.width,
+                height: response.data.height
+            };
+        }
         
-        // Extract title using regex
-        const titleMatch = html.match(/<title>([^<]+)<\/title>/);
-        const title = titleMatch ? titleMatch[1].replace(' - YouTube', '') : `Video ${videoId}`;
-
-        return {
-            videoId: videoId,
-            title: title,
-            author: {
-                name: 'Unknown Author',
-                channel: `https://youtube.com/watch?v=${videoId}`
-            },
-            thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
-            duration: null,
-            description: 'Basic video information retrieved via web scraping'
-        };
+        throw new Error('No valid data in oEmbed response');
+        
     } catch (error) {
-        console.log('Web scraping method failed:', error.message);
+        console.log('❌ oEmbed API failed:', error.message);
+        throw error;
     }
-
-    return null;
 };
 
-// Enhanced getVideoInfo with multiple fallback methods
+// Main getVideoInfo function - PRODUCTION OPTIMIZED
 const getVideoInfo = async (req, res) => {
     try {
         const { url } = req.body;
@@ -126,74 +112,89 @@ const getVideoInfo = async (req, res) => {
             });
         }
 
+        const videoId = extractVideoId(url);
+        if (!videoId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Could not extract video ID from URL'
+            });
+        }
+
         console.log('🔍 Getting video info for:', url);
+        console.log('📋 Video ID:', videoId);
 
         let videoInfo = null;
         let method = 'unknown';
 
-        // Method 1: Try ytdl-core (primary)
-        try {
-            console.log('🔄 Trying ytdl-core method...');
-            const info = await ytdl.getBasicInfo(url);
+        // SKIP ytdl-core in production - go straight to oEmbed
+        if (process.env.NODE_ENV === 'production') {
+            console.log('🌐 Production environment - using oEmbed API only');
             
-            videoInfo = {
-                id: info.videoDetails.videoId,
-                title: info.videoDetails.title,
-                description: info.videoDetails.description?.slice(0, 200) + '...' || 'No description',
-                duration: parseInt(info.videoDetails.lengthSeconds),
-                thumbnail: info.videoDetails.thumbnails?.[0]?.url,
-                author: {
-                    name: info.videoDetails.author.name,
-                    channel: info.videoDetails.author.channel_url
-                },
-                statistics: {
-                    views: parseInt(info.videoDetails.viewCount) || 0,
-                    likes: parseInt(info.videoDetails.likes) || 0
-                },
-                uploadDate: info.videoDetails.uploadDate,
-                category: info.videoDetails.category
-            };
-            method = 'ytdl-core';
-            console.log('✅ ytdl-core method successful');
-            
-        } catch (ytdlError) {
-            console.log('❌ ytdl-core failed:', ytdlError.message);
-            
-            // Method 2: Try alternative methods
-            const videoId = extractVideoId(url);
-            if (videoId) {
-                console.log('🔄 Trying alternative methods...');
-                const altInfo = await getVideoInfoAlternative(videoId);
+            try {
+                videoInfo = await getVideoInfoViaOEmbed(videoId);
+                method = 'youtube-oembed';
+            } catch (oembedError) {
+                console.log('❌ oEmbed failed, using basic fallback');
                 
-                if (altInfo) {
-                    videoInfo = {
-                        id: altInfo.videoId,
-                        title: altInfo.title,
-                        description: altInfo.description,
-                        duration: altInfo.duration || 0,
-                        thumbnail: altInfo.thumbnail,
-                        author: altInfo.author,
-                        statistics: {
-                            views: 0,
-                            likes: 0
-                        },
-                        uploadDate: 'Unknown',
-                        category: 'Unknown'
-                    };
-                    method = 'alternative-api';
-                    console.log('✅ Alternative method successful');
-                }
+                // Basic fallback
+                videoInfo = {
+                    id: videoId,
+                    title: `YouTube Video ${videoId}`,
+                    description: 'Basic video information - YouTube API access limited on hosted servers',
+                    duration: 0,
+                    thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+                    author: {
+                        name: 'Unknown Author',
+                        channel: `https://youtube.com/watch?v=${videoId}`
+                    },
+                    statistics: {
+                        views: 0,
+                        likes: 0
+                    },
+                    uploadDate: 'Unknown',
+                    category: 'Unknown'
+                };
+                method = 'basic-fallback';
             }
-        }
-
-        if (!videoInfo) {
-            throw new Error('All methods failed to retrieve video information');
+        } else {
+            // Development environment - try ytdl-core first
+            console.log('🛠️ Development environment - trying ytdl-core');
+            
+            try {
+                const info = await ytdl.getBasicInfo(url);
+                
+                videoInfo = {
+                    id: info.videoDetails.videoId,
+                    title: info.videoDetails.title,
+                    description: info.videoDetails.description?.slice(0, 200) + '...' || 'No description',
+                    duration: parseInt(info.videoDetails.lengthSeconds),
+                    thumbnail: info.videoDetails.thumbnails?.[0]?.url,
+                    author: {
+                        name: info.videoDetails.author.name,
+                        channel: info.videoDetails.author.channel_url
+                    },
+                    statistics: {
+                        views: parseInt(info.videoDetails.viewCount) || 0,
+                        likes: parseInt(info.videoDetails.likes) || 0
+                    },
+                    uploadDate: info.videoDetails.uploadDate,
+                    category: info.videoDetails.category
+                };
+                method = 'ytdl-core';
+                
+            } catch (ytdlError) {
+                console.log('❌ ytdl-core failed in dev, trying oEmbed');
+                videoInfo = await getVideoInfoViaOEmbed(videoId);
+                method = 'youtube-oembed-fallback';
+            }
         }
 
         return res.json({
             success: true,
             message: 'Video info retrieved successfully',
             method: method,
+            environment: process.env.NODE_ENV || 'development',
+            note: process.env.NODE_ENV === 'production' ? 'Limited functionality due to YouTube restrictions on hosted servers' : undefined,
             data: videoInfo
         });
 
@@ -202,225 +203,157 @@ const getVideoInfo = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: 'Failed to get video information',
-            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+            error: process.env.NODE_ENV === 'development' ? error.message : 'YouTube access limited on hosted servers',
             troubleshooting: {
-                possibleCauses: [
-                    'YouTube blocking cloud server IPs',
-                    'Video is private or restricted',
-                    'Invalid YouTube URL',
-                    'Network connectivity issues'
-                ],
-                solutions: [
-                    'Try a different YouTube video',
-                    'Check if the video is public',
-                    'Ensure stable internet connection',
-                    'YouTube may be temporarily blocking requests'
-                ]
+                issue: 'YouTube restricts access from hosted server IPs',
+                workaround: 'Basic video information may still be available',
+                environment: process.env.NODE_ENV || 'development'
             }
         });
     }
 };
 
-// Enhanced download method with fallbacks
+// Enhanced download function that actually works
 const downloadVideoV1 = async (req, res) => {
     try {
         const { url } = req.body;
-        
+
         if (!url) {
             return res.status(400).json({
                 success: false,
-                message: 'YouTube URL is required'
+                message: 'URL is required'
             });
         }
 
         if (!isValidYouTubeUrl(url)) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid YouTube URL format'
+                message: 'Invalid YouTube URL'
             });
         }
 
-        console.log('🔄 Processing YouTube URL (ytdl-core):', url);
+        console.log('🔍 Getting download info for:', url);
 
-        // Try to get video info first
-        const info = await ytdl.getInfo(url);
-        
-        // Choose format
-        const formats = info.formats.filter(format => 
-            format.hasVideo && format.hasAudio && format.container === 'mp4'
-        );
-        
-        let selectedFormat = formats.find(f => f.qualityLabel === '720p') || 
-                           formats.find(f => f.qualityLabel === '480p') || 
-                           formats[0];
+        let downloadInfo = null;
+        let method = 'unknown';
 
-        if (!selectedFormat) {
-            selectedFormat = ytdl.chooseFormat(info.formats, { quality: 'highest' });
+        // Try different methods based on environment
+        if (process.env.NODE_ENV !== 'production') {
+            // Development: Try ytdl-core first
+            try {
+                console.log('🔄 Trying ytdl-core method...');
+                const info = await ytdl.getInfo(url);
+                const formats = ytdl.filterFormats(info.formats, 'videoandaudio');
+                
+                if (formats.length > 0) {
+                    const bestFormat = formats[0];
+                    downloadInfo = {
+                        title: info.videoDetails.title,
+                        thumbnail: info.videoDetails.thumbnails?.[0]?.url,
+                        duration: info.videoDetails.lengthSeconds,
+                        author: info.videoDetails.author.name,
+                        downloadUrl: bestFormat.url,
+                        quality: bestFormat.qualityLabel || 'Unknown',
+                        filesize: bestFormat.contentLength || 'Unknown',
+                        videoId: info.videoDetails.videoId,
+                        method: 'ytdl-core'
+                    };
+                    method = 'ytdl-core';
+                    console.log('✅ ytdl-core method successful');
+                }
+            } catch (error) {
+                console.log('❌ ytdl-core failed:', error.message);
+            }
         }
 
-        if (!selectedFormat || !selectedFormat.url) {
-            throw new Error('No suitable format found');
+        // Fallback: Use oEmbed for basic info + external download suggestion
+        if (!downloadInfo) {
+            console.log('🔄 Using oEmbed fallback...');
+            const videoId = extractVideoId(url);
+            const basicInfo = await getVideoInfoViaOEmbed(videoId);
+            
+            downloadInfo = {
+                title: basicInfo.title,
+                thumbnail: basicInfo.thumbnail_url,
+                author: basicInfo.author_name,
+                videoId: videoId,
+                originalUrl: url,
+                method: 'oembed-info-only',
+                note: process.env.NODE_ENV === 'production' 
+                    ? 'Direct download not available on hosted servers due to YouTube restrictions'
+                    : 'Using basic info only',
+                // Provide alternative download methods
+                alternatives: {
+                    suggestion: 'Use a YouTube downloader extension or visit youtube-dl websites',
+                    directLink: `https://www.youtube.com/watch?v=${videoId}`,
+                    ytdlCommand: `yt-dlp "${url}"`,
+                    onlineDownloaders: [
+                        'https://ytdl-org.github.io/youtube-dl/',
+                        'https://github.com/yt-dlp/yt-dlp'
+                    ]
+                }
+            };
+            method = 'oembed-fallback';
+            console.log('✅ oEmbed fallback successful');
         }
-
-        console.log('📥 Download format found:', selectedFormat.qualityLabel || selectedFormat.quality);
-
-        // Create short proxy URL
-        const videoId = info.videoDetails.videoId;
-        const shortHash = generateShortHash(selectedFormat.url, videoId);
-        
-        urlStore.set(shortHash, {
-            url: selectedFormat.url,
-            title: info.videoDetails.title,
-            sanitizedTitle: sanitizeFilename(info.videoDetails.title),
-            expires: Date.now() + (6 * 60 * 60 * 1000),
-            videoId: videoId
-        });
-
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        const shortUrl = `${baseUrl}/api/v1/youtube/proxy/${shortHash}`;
 
         return res.json({
             success: true,
-            message: 'YouTube video URL retrieved successfully',
-            method: 'ytdl-core (distube)',
-            data: {
-                downloadUrl: shortUrl,
-                directUrl: selectedFormat.url,
-                id: videoId,
-                title: info.videoDetails.title,
-                description: info.videoDetails.description?.slice(0, 500) + '...' || 'No description',
-                duration: parseInt(info.videoDetails.lengthSeconds),
-                author: {
-                    name: info.videoDetails.author.name,
-                    channel: info.videoDetails.author.channel_url,
-                    channelId: info.videoDetails.author.id,
-                    thumbnail: info.videoDetails.author.thumbnails?.[0]?.url
-                },
-                statistics: {
-                    views: parseInt(info.videoDetails.viewCount) || 0,
-                    likes: parseInt(info.videoDetails.likes) || 0,
-                    rating: parseFloat(info.videoDetails.averageRating) || 0
-                },
-                thumbnail: info.videoDetails.thumbnails?.[0]?.url,
-                uploadDate: info.videoDetails.uploadDate,
-                category: info.videoDetails.category,
-                format: {
-                    quality: selectedFormat.qualityLabel || selectedFormat.quality,
-                    container: selectedFormat.container || selectedFormat.ext,
-                    videoCodec: selectedFormat.videoCodec,
-                    audioCodec: selectedFormat.audioCodec,
-                    filesize: selectedFormat.contentLength || 'Unknown'
-                }
-            }
+            message: 'Download information retrieved successfully',
+            method: method,
+            data: downloadInfo,
+            environment: process.env.NODE_ENV || 'development',
+            limitations: process.env.NODE_ENV === 'production' 
+                ? ['Direct download URLs not available', 'YouTube blocks hosted server IPs']
+                : []
         });
 
     } catch (error) {
-        console.error('❌ YouTube V1 (ytdl-core) Error:', error.message);
+        console.error('❌ Download Error:', error.message);
         return res.status(500).json({
             success: false,
-            message: 'Failed to process YouTube URL with ytdl-core',
-            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+            message: 'Failed to get download information',
+            error: process.env.NODE_ENV === 'development' ? error.message : 'YouTube access limited on hosted servers',
             troubleshooting: {
                 possibleCauses: [
-                    'YouTube blocking cloud server IPs',
-                    'Video is private, restricted, or deleted',
-                    'Geographic restrictions',
-                    'YouTube API changes'
+                    'YouTube blocking server IP',
+                    'Rate limiting from YouTube',
+                    'Video is private or restricted',
+                    'Invalid URL format'
                 ],
                 solutions: [
-                    'Try a different YouTube video',
-                    'Check if the video is public and accessible',
-                    'YouTube may be temporarily blocking requests from this server'
+                    'Try with a different video URL',
+                    'Use localhost for development testing',
+                    'Consider using YouTube API key',
+                    'Use external download tools'
                 ]
             }
         });
     }
 };
 
-// Proxy endpoint (unchanged)
+// Proxy endpoint - disabled in production
 const proxyDownload = async (req, res) => {
-    try {
-        const { hash } = req.params;
-        
-        if (!urlStore.has(hash)) {
-            return res.status(404).json({
-                success: false,
-                message: 'Download link not found or expired'
-            });
-        }
-        
-        const urlData = urlStore.get(hash);
-        
-        if (Date.now() > urlData.expires) {
-            urlStore.delete(hash);
-            return res.status(410).json({
-                success: false,
-                message: 'Download link has expired'
-            });
-        }
-        
-        console.log(`📥 Redirecting download: ${urlData.title}`);
-        
-        try {
-            const filename = `${urlData.sanitizedTitle}.mp4`;
-            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-            res.setHeader('Content-Type', 'video/mp4');
-            res.redirect(urlData.url);
-        } catch (headerError) {
-            console.error('Header Error:', headerError.message);
-            res.redirect(urlData.url);
-        }
-        
-    } catch (error) {
-        console.error('Proxy Error:', error.message);
-        res.status(500).json({
-            success: false,
-            message: 'Proxy error',
-            error: error.message
-        });
-    }
+    return res.status(503).json({
+        success: false,
+        message: 'YouTube download proxy not available on hosted servers'
+    });
 };
 
-// Clean up expired URLs
-const cleanupExpiredUrls = () => {
-    const now = Date.now();
-    for (const [hash, data] of urlStore.entries()) {
-        if (now > data.expires) {
-            urlStore.delete(hash);
-        }
-    }
-};
-
-// Get stats
+// Stats endpoint
 const getStats = async (req, res) => {
-    try {
-        cleanupExpiredUrls();
-        
-        return res.json({
-            success: true,
-            stats: {
-                totalDownloads: req.app?.locals?.youtubeDownloadCount || 0,
-                activeProxyUrls: urlStore.size,
-                uptime: Math.floor(process.uptime()),
-                memory: process.memoryUsage(),
-                availableMethods: ['v1 (ytdl-core)', 'alternative-api', 'web-scraping'],
-                supportedFormats: ['mp4', 'webm', 'audio-only'],
-                features: [
-                    'Multiple fallback methods',
-                    'Cloud-server optimized',
-                    'Short proxy URLs',
-                    'Direct download URLs',
-                    'Enhanced error handling'
-                ]
-            }
-        });
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: 'Failed to get stats',
-            error: error.message
-        });
-    }
+    return res.json({
+        success: true,
+        stats: {
+            environment: process.env.NODE_ENV || 'development',
+            status: process.env.NODE_ENV === 'production' ? 'Limited (oEmbed only)' : 'Full functionality',
+            availableMethods: process.env.NODE_ENV === 'production' ? ['youtube-oembed', 'basic-fallback'] : ['ytdl-core', 'youtube-oembed'],
+            restrictedFeatures: process.env.NODE_ENV === 'production' ? ['download', 'detailed-stats'] : [],
+            uptime: Math.floor(process.uptime()),
+            memory: process.memoryUsage(),
+            note: 'YouTube restricts access from hosted servers'
+        }
+    });
 };
 
 // Debug endpoint to test what's working on hosted environment
