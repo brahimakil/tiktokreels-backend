@@ -423,9 +423,131 @@ const getStats = async (req, res) => {
     }
 };
 
+// Debug endpoint to test what's working on hosted environment
+const debugYoutube = async (req, res) => {
+    const results = {
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development',
+        server: req.get('host'),
+        tests: {}
+    };
+
+    // Test 1: Basic Node.js modules
+    try {
+        results.tests.nodeModules = {
+            crypto: !!require('crypto'),
+            https: !!require('https'),
+            status: 'working'
+        };
+    } catch (error) {
+        results.tests.nodeModules = {
+            status: 'failed',
+            error: error.message
+        };
+    }
+
+    // Test 2: ytdl-core availability
+    try {
+        const ytdl = require('@distube/ytdl-core');
+        results.tests.ytdlCore = {
+            available: true,
+            version: ytdl.version || 'unknown',
+            status: 'loaded'
+        };
+    } catch (error) {
+        results.tests.ytdlCore = {
+            available: false,
+            status: 'failed',
+            error: error.message
+        };
+    }
+
+    // Test 3: axios availability
+    try {
+        const axios = require('axios');
+        results.tests.axios = {
+            available: true,
+            status: 'loaded'
+        };
+    } catch (error) {
+        results.tests.axios = {
+            available: false,
+            status: 'failed',
+            error: error.message
+        };
+    }
+
+    // Test 4: Simple HTTP request
+    try {
+        const axios = require('axios');
+        const response = await axios.get('https://httpbin.org/ip', { timeout: 5000 });
+        results.tests.httpRequest = {
+            status: 'working',
+            serverIP: response.data.origin
+        };
+    } catch (error) {
+        results.tests.httpRequest = {
+            status: 'failed',
+            error: error.message
+        };
+    }
+
+    // Test 5: YouTube oEmbed API
+    try {
+        const axios = require('axios');
+        const testVideoId = 'dQw4w9WgXcQ'; // Rick Roll - always available
+        const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${testVideoId}&format=json`;
+        
+        const response = await axios.get(oembedUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            },
+            timeout: 10000
+        });
+
+        results.tests.youtubeOEmbed = {
+            status: 'working',
+            title: response.data.title,
+            author: response.data.author_name
+        };
+    } catch (error) {
+        results.tests.youtubeOEmbed = {
+            status: 'failed',
+            error: error.message,
+            statusCode: error.response?.status
+        };
+    }
+
+    // Test 6: ytdl-core with test video
+    try {
+        const ytdl = require('@distube/ytdl-core');
+        const testUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+        
+        const info = await ytdl.getBasicInfo(testUrl);
+        results.tests.ytdlBasicInfo = {
+            status: 'working',
+            videoId: info.videoDetails.videoId,
+            title: info.videoDetails.title
+        };
+    } catch (error) {
+        results.tests.ytdlBasicInfo = {
+            status: 'failed',
+            error: error.message,
+            errorType: error.name
+        };
+    }
+
+    return res.json({
+        success: true,
+        message: 'YouTube debug information',
+        debug: results
+    });
+};
+
 module.exports = {
     downloadVideoV1,
     proxyDownload,
     getVideoInfo,
-    getStats
+    getStats,
+    debugYoutube
 };
