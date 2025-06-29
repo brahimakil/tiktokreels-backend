@@ -2,7 +2,6 @@ const express = require('express');
 require('dotenv').config();
 
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || 'localhost';
 
 // Import the app
 let app;
@@ -14,12 +13,12 @@ try {
     process.exit(1);
 }
 
-// Start server
-app.listen(PORT, HOST, () => {
-    console.log(`🚀 TikTok Reels Backend Server running on http://${HOST}:${PORT}`);
+// Start server - no HOST parameter = binds to 0.0.0.0 automatically
+app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📱 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`⚡ API Base URL: http://${HOST}:${PORT}/api/v1`);
-    console.log(`📊 Health Check: http://${HOST}:${PORT}/health`);
+    console.log(`⚡ Local: http://localhost:${PORT}/api/v1`);
+    console.log(`📊 Health: http://localhost:${PORT}/health`);
 });
 
 // Graceful shutdown
