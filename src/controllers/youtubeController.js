@@ -43,25 +43,21 @@ function sanitizeFilename(title) {
         || 'youtube_video';
 }
 
-// SERVER-OPTIMIZED: Enhanced User-Agent rotation for cloud servers
+// Enhanced User-Agent rotation for better server compatibility
 const getUserAgent = () => {
     const userAgents = [
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0'
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     ];
     return userAgents[Math.floor(Math.random() * userAgents.length)];
 };
 
-// SERVER-OPTIMIZED: Enhanced alternative method with multiple fallbacks
+// Alternative method using YouTube API (fallback)
 const getVideoInfoAlternative = async (videoId) => {
-    console.log('🔄 Trying alternative methods for server environment...');
-    
-    // Method 1: YouTube oEmbed API (most reliable for servers)
     try {
-        console.log('📡 Trying YouTube oEmbed API...');
+        // Method 1: Try YouTube oEmbed API (no API key required)
         const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
         
         const response = await axios.get(oembedUrl, {
@@ -74,89 +70,61 @@ const getVideoInfoAlternative = async (videoId) => {
                 'Connection': 'keep-alive',
                 'Upgrade-Insecure-Requests': '1'
             },
-            timeout: 15000,
-            maxRedirects: 5
+            timeout: 10000
         });
 
-        if (response.data && response.data.title) {
-            console.log('✅ oEmbed API successful');
+        if (response.data) {
             return {
                 videoId: videoId,
                 title: response.data.title,
                 author: {
-                    name: response.data.author_name || 'Unknown Author',
-                    channel: response.data.author_url || `https://youtube.com/watch?v=${videoId}`
+                    name: response.data.author_name,
+                    channel: response.data.author_url
                 },
-                thumbnail: response.data.thumbnail_url || `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
-                duration: response.data.duration || null,
-                description: 'Video information retrieved via YouTube oEmbed API'
+                thumbnail: response.data.thumbnail_url,
+                duration: null, // oEmbed doesn't provide duration
+                description: 'Video information retrieved via alternative method'
             };
         }
     } catch (error) {
-        console.log('❌ oEmbed method failed:', error.message);
+        console.log('oEmbed method failed:', error.message);
     }
 
-    // Method 2: YouTube thumbnail + basic info (always works)
+    // Method 2: Try scraping basic info from YouTube page
     try {
-        console.log('🖼️ Trying thumbnail-based method...');
-        
-        // Test if video exists by checking thumbnail
-        const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
-        const thumbnailResponse = await axios.head(thumbnailUrl, {
-            timeout: 10000,
-            headers: { 'User-Agent': getUserAgent() }
+        const pageUrl = `https://www.youtube.com/watch?v=${videoId}`;
+        const response = await axios.get(pageUrl, {
+            headers: {
+                'User-Agent': getUserAgent()
+            },
+            timeout: 15000
         });
 
-        if (thumbnailResponse.status === 200) {
-            console.log('✅ Thumbnail method successful');
-            return {
-                videoId: videoId,
-                title: `YouTube Video ${videoId}`,
-                author: {
-                    name: 'YouTube User',
-                    channel: `https://youtube.com/watch?v=${videoId}`
-                },
-                thumbnail: thumbnailUrl,
-                duration: null,
-                description: 'Basic video information - video exists and is accessible'
-            };
-        }
+        const html = response.data;
+        
+        // Extract title using regex
+        const titleMatch = html.match(/<title>([^<]+)<\/title>/);
+        const title = titleMatch ? titleMatch[1].replace(' - YouTube', '') : `Video ${videoId}`;
+
+        return {
+            videoId: videoId,
+            title: title,
+            author: {
+                name: 'Unknown Author',
+                channel: `https://youtube.com/watch?v=${videoId}`
+            },
+            thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+            duration: null,
+            description: 'Basic video information retrieved via web scraping'
+        };
     } catch (error) {
-        console.log('❌ Thumbnail method failed:', error.message);
+        console.log('Web scraping method failed:', error.message);
     }
 
-    // Method 3: Minimal fallback
-    console.log('📝 Using minimal fallback method...');
-    return {
-        videoId: videoId,
-        title: `YouTube Video ${videoId}`,
-        author: {
-            name: 'Unknown',
-            channel: `https://youtube.com/watch?v=${videoId}`
-        },
-        thumbnail: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
-        duration: null,
-        description: 'Minimal video information - server-optimized fallback'
-    };
+    return null;
 };
 
-// SERVER-OPTIMIZED: Enhanced ytdl-core configuration for cloud servers
-const createYtdlAgent = () => {
-    return ytdl.createAgent(undefined, {
-        localAddress: undefined,
-        headers: {
-            'User-Agent': getUserAgent(),
-            'Accept': '*/*',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate',
-            'DNT': '1',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
-        }
-    });
-};
-
-// Enhanced getVideoInfo with server optimizations
+// Enhanced getVideoInfo with multiple fallback methods
 const getVideoInfo = async (req, res) => {
     try {
         const { url } = req.body;
@@ -176,27 +144,22 @@ const getVideoInfo = async (req, res) => {
         }
 
         console.log('🔍 Getting video info for:', url);
-        console.log('🌐 Server environment detected, using optimized methods...');
 
         let videoInfo = null;
         let method = 'unknown';
-        const videoId = extractVideoId(url);
 
-        if (!videoId) {
-            throw new Error('Could not extract video ID from URL');
-        }
-
-        // Method 1: Try ytdl-core with server optimizations
+        // Method 1: Try ytdl-core (primary) with enhanced headers
         try {
-            console.log('🔄 Trying ytdl-core with server optimizations...');
-            
-            const agent = createYtdlAgent();
+            console.log('🔄 Trying ytdl-core method...');
             const info = await ytdl.getBasicInfo(url, {
-                agent: agent,
                 requestOptions: {
-                    timeout: 20000,
                     headers: {
-                        'User-Agent': getUserAgent()
+                        'User-Agent': getUserAgent(),
+                        'Accept': '*/*',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'DNT': '1',
+                        'Connection': 'keep-alive'
                     }
                 }
             });
@@ -218,45 +181,47 @@ const getVideoInfo = async (req, res) => {
                 uploadDate: info.videoDetails.uploadDate,
                 category: info.videoDetails.category
             };
-            method = 'ytdl-core-optimized';
-            console.log('✅ ytdl-core optimized method successful');
+            method = 'ytdl-core';
+            console.log('✅ ytdl-core method successful');
             
         } catch (ytdlError) {
             console.log('❌ ytdl-core failed:', ytdlError.message);
             
-            // Method 2: Try alternative methods (server-optimized)
-            console.log('🔄 Falling back to server-optimized alternative methods...');
-            const altInfo = await getVideoInfoAlternative(videoId);
-            
-            if (altInfo) {
-                videoInfo = {
-                    id: altInfo.videoId,
-                    title: altInfo.title,
-                    description: altInfo.description,
-                    duration: altInfo.duration || 0,
-                    thumbnail: altInfo.thumbnail,
-                    author: altInfo.author,
-                    statistics: {
-                        views: 0,
-                        likes: 0
-                    },
-                    uploadDate: 'Unknown',
-                    category: 'Unknown'
-                };
-                method = 'server-optimized-fallback';
-                console.log('✅ Server-optimized fallback successful');
+            // Method 2: Try alternative methods
+            const videoId = extractVideoId(url);
+            if (videoId) {
+                console.log('🔄 Trying alternative methods...');
+                const altInfo = await getVideoInfoAlternative(videoId);
+                
+                if (altInfo) {
+                    videoInfo = {
+                        id: altInfo.videoId,
+                        title: altInfo.title,
+                        description: altInfo.description,
+                        duration: altInfo.duration || 0,
+                        thumbnail: altInfo.thumbnail,
+                        author: altInfo.author,
+                        statistics: {
+                            views: 0,
+                            likes: 0
+                        },
+                        uploadDate: 'Unknown',
+                        category: 'Unknown'
+                    };
+                    method = 'alternative-api';
+                    console.log('✅ Alternative method successful');
+                }
             }
         }
 
         if (!videoInfo) {
-            throw new Error('All server-optimized methods failed to retrieve video information');
+            throw new Error('All methods failed to retrieve video information');
         }
 
         return res.json({
             success: true,
             message: 'Video info retrieved successfully',
             method: method,
-            serverOptimized: true,
             data: videoInfo
         });
 
@@ -265,27 +230,26 @@ const getVideoInfo = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: 'Failed to get video information',
-            error: process.env.NODE_ENV === 'development' ? error.message : 'Server-optimized method failed',
-            serverOptimized: true,
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
             troubleshooting: {
                 possibleCauses: [
-                    'YouTube blocking cloud server IPs (common on Vercel/Netlify)',
-                    'Video is private, restricted, or deleted',
-                    'Geographic restrictions on serverless functions',
-                    'Network timeout in serverless environment'
+                    'YouTube blocking cloud server IPs',
+                    'Video is private or restricted',
+                    'Invalid YouTube URL',
+                    'Network connectivity issues'
                 ],
                 solutions: [
-                    'Try a different public YouTube video',
-                    'Check if video is accessible from your region',
-                    'Serverless functions have limited YouTube access',
-                    'Consider using dedicated server for YouTube downloads'
+                    'Try a different YouTube video',
+                    'Check if the video is public',
+                    'Ensure stable internet connection',
+                    'YouTube may be temporarily blocking requests'
                 ]
             }
         });
     }
 };
 
-// SERVER-OPTIMIZED: Enhanced download method for cloud servers
+// RESTORED ORIGINAL: Enhanced download method - BACK TO WORKING VERSION
 const downloadVideoV1 = async (req, res) => {
     try {
         const { url } = req.body;
@@ -304,195 +268,45 @@ const downloadVideoV1 = async (req, res) => {
             });
         }
 
-        console.log('🔄 Processing YouTube URL with server optimizations:', url);
-        console.log('🌐 Serverless environment detected, using enhanced methods...');
+        console.log('🔄 Processing YouTube URL:', url);
 
-        const videoId = extractVideoId(url);
-        if (!videoId) {
-            throw new Error('Could not extract video ID from URL');
-        }
-
-        let info = null;
-        let method = 'unknown';
-        let selectedFormat = null;
-
-        // Method 1: Try ytdl-core with aggressive server optimizations
-        try {
-            console.log('🔄 Trying ytdl-core with aggressive server optimizations...');
-            
-            const agent = createYtdlAgent();
-            info = await ytdl.getInfo(url, {
-                agent: agent,
-                requestOptions: {
-                    timeout: 25000, // Increased timeout for servers
-                    headers: {
-                        'User-Agent': getUserAgent(),
-                        'Accept': '*/*',
-                        'Accept-Language': 'en-US,en;q=0.9',
-                        'Cache-Control': 'no-cache',
-                        'Pragma': 'no-cache'
-                    }
+        // Try to get video info first with enhanced headers
+        const info = await ytdl.getInfo(url, {
+            requestOptions: {
+                headers: {
+                    'User-Agent': getUserAgent(),
+                    'Accept': '*/*',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'DNT': '1',
+                    'Connection': 'keep-alive',
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
                 }
-            });
-            method = 'ytdl-core-server-optimized';
-            console.log('✅ ytdl-core server-optimized successful');
-            
-            // Get format from ytdl-core
-            const formats = info.formats.filter(format => 
-                format.hasVideo && format.hasAudio && format.container === 'mp4'
-            );
-            
-            selectedFormat = formats.find(f => f.qualityLabel === '720p') || 
+            }
+        });
+        
+        // Choose format - EXACTLY like localhost version
+        const formats = info.formats.filter(format => 
+            format.hasVideo && format.hasAudio && format.container === 'mp4'
+        );
+        
+        let selectedFormat = formats.find(f => f.qualityLabel === '720p') || 
                            formats.find(f => f.qualityLabel === '480p') || 
                            formats[0];
 
-            if (!selectedFormat) {
-                selectedFormat = ytdl.chooseFormat(info.formats, { quality: 'highest' });
-            }
-            
-        } catch (ytdlError) {
-            console.log('❌ ytdl-core server method failed:', ytdlError.message);
-            
-            // Method 2: Try alternative download methods (SERVER-SPECIFIC)
-            console.log('🔄 Trying alternative download methods for server...');
-            
-            try {
-                // Try to get basic video info first
-                const altInfo = await getVideoInfoAlternative(videoId);
-                
-                if (altInfo) {
-                    // Method 2A: Try generic YouTube download URLs (these sometimes work)
-                    const genericDownloadUrls = [
-                        `https://www.youtube.com/watch?v=${videoId}`,
-                        `https://youtu.be/${videoId}`,
-                        `https://www.youtube.com/embed/${videoId}`
-                    ];
-                    
-                    // Create a fallback "download" that redirects to YouTube
-                    const fallbackHash = generateShortHash(url, videoId);
-                    
-                    urlStore.set(fallbackHash, {
-                        url: `https://www.youtube.com/watch?v=${videoId}`,
-                        title: altInfo.title,
-                        sanitizedTitle: sanitizeFilename(altInfo.title),
-                        expires: Date.now() + (6 * 60 * 60 * 1000),
-                        videoId: videoId,
-                        isFallback: true
-                    });
-
-                    const baseUrl = `${req.protocol}://${req.get('host')}`;
-                    const fallbackUrl = `${baseUrl}/api/v1/youtube/proxy/${fallbackHash}`;
-
-                    return res.json({
-                        success: true,
-                        message: 'Video info retrieved with fallback download method',
-                        method: 'server-fallback-redirect',
-                        serverOptimized: true,
-                        data: {
-                            downloadUrl: fallbackUrl,
-                            directUrl: `https://www.youtube.com/watch?v=${videoId}`,
-                            id: altInfo.videoId,
-                            title: altInfo.title,
-                            description: altInfo.description,
-                            duration: altInfo.duration || 0,
-                            author: altInfo.author,
-                            statistics: {
-                                views: 0,
-                                likes: 0,
-                                rating: 0
-                            },
-                            thumbnail: altInfo.thumbnail,
-                            uploadDate: 'Unknown',
-                            category: 'Unknown',
-                            format: {
-                                quality: 'Redirect to YouTube',
-                                container: 'External',
-                                videoCodec: 'N/A',
-                                audioCodec: 'N/A',
-                                filesize: 'Unknown'
-                            },
-                            serverNote: {
-                                message: 'Server limitations detected - using fallback method',
-                                suggestion: 'Download will redirect to YouTube where you can use browser extensions',
-                                videoUrl: `https://youtube.com/watch?v=${videoId}`
-                            }
-                        }
-                    });
-                }
-            } catch (altError) {
-                console.log('❌ Alternative methods also failed:', altError.message);
-            }
-            
-            // Method 3: Last resort - return YouTube URL as "download"
-            console.log('🔄 Using last resort method - YouTube URL redirect...');
-            
-            const lastResortHash = generateShortHash(url, videoId);
-            const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-            
-            urlStore.set(lastResortHash, {
-                url: youtubeUrl,
-                title: `YouTube Video ${videoId}`,
-                sanitizedTitle: `youtube_video_${videoId}`,
-                expires: Date.now() + (6 * 60 * 60 * 1000),
-                videoId: videoId,
-                isFallback: true,
-                isLastResort: true
-            });
-
-            const baseUrl = `${req.protocol}://${req.get('host')}`;
-            const lastResortUrl = `${baseUrl}/api/v1/youtube/proxy/${lastResortHash}`;
-
-            return res.json({
-                success: true,
-                message: 'Video URL created with redirect method (server limitation)',
-                method: 'last-resort-redirect',
-                serverOptimized: true,
-                data: {
-                    downloadUrl: lastResortUrl,
-                    directUrl: youtubeUrl,
-                    id: videoId,
-                    title: `YouTube Video ${videoId}`,
-                    description: 'Server-limited access - redirects to YouTube',
-                    duration: 0,
-                    author: {
-                        name: 'YouTube User',
-                        channel: youtubeUrl,
-                        channelId: 'unknown',
-                        thumbnail: null
-                    },
-                    statistics: {
-                        views: 0,
-                        likes: 0,
-                        rating: 0
-                    },
-                    thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
-                    uploadDate: 'Unknown',
-                    category: 'Unknown',
-                    format: {
-                        quality: 'YouTube Redirect',
-                        container: 'External',
-                        videoCodec: 'N/A',
-                        audioCodec: 'N/A',
-                        filesize: 'Unknown'
-                    },
-                    serverLimitation: {
-                        message: 'Serverless platform limitations - redirecting to YouTube',
-                        suggestion: 'Use browser extension or download tool on the redirected page',
-                        videoUrl: youtubeUrl,
-                        note: 'This ensures you always get a working download URL'
-                    }
-                }
-            });
+        if (!selectedFormat) {
+            selectedFormat = ytdl.chooseFormat(info.formats, { quality: 'highest' });
         }
 
-        // If ytdl-core worked, proceed with normal format selection
         if (!selectedFormat || !selectedFormat.url) {
-            throw new Error('No suitable format found even with ytdl-core success');
+            throw new Error('No suitable format found');
         }
 
         console.log('📥 Download format found:', selectedFormat.qualityLabel || selectedFormat.quality);
 
-        // Create short proxy URL
+        // Create short proxy URL - EXACTLY like localhost version
+        const videoId = info.videoDetails.videoId;
         const shortHash = generateShortHash(selectedFormat.url, videoId);
         
         urlStore.set(shortHash, {
@@ -508,9 +322,8 @@ const downloadVideoV1 = async (req, res) => {
 
         return res.json({
             success: true,
-            message: 'YouTube video URL retrieved successfully (server-optimized)',
-            method: method,
-            serverOptimized: true,
+            message: 'YouTube video URL retrieved successfully',
+            method: 'ytdl-core (enhanced)',
             data: {
                 downloadUrl: shortUrl,
                 directUrl: selectedFormat.url,
@@ -543,85 +356,31 @@ const downloadVideoV1 = async (req, res) => {
         });
 
     } catch (error) {
-        console.error('❌ YouTube Server-Optimized Error:', error.message);
-        
-        // Even in final error, try to provide a working URL
-        const videoId = extractVideoId(req.body.url);
-        if (videoId) {
-            const emergencyHash = generateShortHash(req.body.url, videoId);
-            const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-            
-            urlStore.set(emergencyHash, {
-                url: youtubeUrl,
-                title: `YouTube Video ${videoId}`,
-                sanitizedTitle: `youtube_video_${videoId}`,
-                expires: Date.now() + (6 * 60 * 60 * 1000),
-                videoId: videoId,
-                isEmergency: true
-            });
-
-            const baseUrl = `${req.protocol}://${req.get('host')}`;
-            const emergencyUrl = `${baseUrl}/api/v1/youtube/proxy/${emergencyHash}`;
-
-            return res.json({
-                success: true,
-                message: 'Emergency fallback - YouTube redirect URL created',
-                method: 'emergency-redirect',
-                serverOptimized: true,
-                data: {
-                    downloadUrl: emergencyUrl,
-                    directUrl: youtubeUrl,
-                    id: videoId,
-                    title: `YouTube Video ${videoId}`,
-                    description: 'Emergency server fallback',
-                    duration: 0,
-                    author: {
-                        name: 'Unknown',
-                        channel: youtubeUrl
-                    },
-                    statistics: { views: 0, likes: 0, rating: 0 },
-                    thumbnail: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
-                    uploadDate: 'Unknown',
-                    category: 'Unknown',
-                    format: {
-                        quality: 'YouTube Redirect',
-                        container: 'External'
-                    },
-                    emergencyMode: true
-                }
-            });
-        }
-        
+        console.error('❌ YouTube Download Error:', error.message);
         return res.status(500).json({
             success: false,
-            message: 'Failed to process YouTube URL on server environment',
-            error: process.env.NODE_ENV === 'development' ? error.message : 'Serverless environment limitation',
-            serverOptimized: true,
+            message: 'Failed to process YouTube URL',
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
             troubleshooting: {
                 possibleCauses: [
-                    'YouTube actively blocks serverless platforms (Vercel, Netlify, etc.)',
-                    'IP-based restrictions on cloud functions',
-                    'Serverless function timeout limits',
-                    'Network restrictions in cloud environment'
+                    'YouTube blocking server IPs',
+                    'Video is private, restricted, or deleted',
+                    'Geographic restrictions',
+                    'YouTube API changes',
+                    'Network connectivity issues'
                 ],
                 solutions: [
-                    'YouTube downloads work better on dedicated servers',
-                    'Consider using client-side YouTube downloaders',
-                    'Try different videos (some may work intermittently)',
-                    'Serverless platforms have inherent YouTube limitations'
-                ],
-                alternatives: [
-                    'Use local development server for testing',
-                    'Deploy to dedicated VPS/server instead of serverless',
-                    'Use YouTube API for metadata only',
-                    'Implement client-side download solutions'
+                    'Try a different YouTube video',
+                    'Check if the video is public and accessible',
+                    'YouTube may be temporarily blocking requests from this server',
+                    'Try again in a few minutes'
                 ]
             }
         });
     }
 };
 
-// Enhanced proxy endpoint to handle fallbacks
+// RESTORED ORIGINAL: Proxy endpoint - EXACTLY like localhost version
 const proxyDownload = async (req, res) => {
     try {
         const { hash } = req.params;
@@ -645,22 +404,14 @@ const proxyDownload = async (req, res) => {
         
         console.log(`📥 Redirecting download: ${urlData.title}`);
         
-        // Handle different types of URLs
-        if (urlData.isFallback || urlData.isLastResort || urlData.isEmergency) {
-            console.log('🔄 Using fallback redirect method');
-            // For fallback URLs, redirect to YouTube with a message
-            res.redirect(`${urlData.url}&utm_source=server_fallback`);
-        } else {
-            // Normal direct download
-            try {
-                const filename = `${urlData.sanitizedTitle}.mp4`;
-                res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-                res.setHeader('Content-Type', 'video/mp4');
-                res.redirect(urlData.url);
-            } catch (headerError) {
-                console.error('Header Error:', headerError.message);
-                res.redirect(urlData.url);
-            }
+        try {
+            const filename = `${urlData.sanitizedTitle}.mp4`;
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            res.setHeader('Content-Type', 'video/mp4');
+            res.redirect(urlData.url);
+        } catch (headerError) {
+            console.error('Header Error:', headerError.message);
+            res.redirect(urlData.url);
         }
         
     } catch (error) {
@@ -699,7 +450,7 @@ const getStats = async (req, res) => {
                 supportedFormats: ['mp4', 'webm', 'audio-only'],
                 features: [
                     'Multiple fallback methods',
-                    'Cloud-server optimized',
+                    'Enhanced headers for server compatibility',
                     'Short proxy URLs',
                     'Direct download URLs',
                     'Enhanced error handling'
@@ -715,15 +466,12 @@ const getStats = async (req, res) => {
     }
 };
 
-// SERVER-OPTIMIZED: Enhanced debug endpoint
+// Debug endpoint to test what's working on hosted environment
 const debugYoutube = async (req, res) => {
     const results = {
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV || 'development',
         server: req.get('host'),
-        platform: process.platform,
-        nodeVersion: process.version,
-        serverOptimized: true,
         tests: {}
     };
 
@@ -772,92 +520,75 @@ const debugYoutube = async (req, res) => {
         };
     }
 
-    // Test 4: Server IP detection
+    // Test 4: Simple HTTP request
     try {
         const axios = require('axios');
-        const response = await axios.get('https://httpbin.org/ip', { 
-            timeout: 8000,
-            headers: { 'User-Agent': getUserAgent() }
-        });
-        results.tests.serverIP = {
+        const response = await axios.get('https://httpbin.org/ip', { timeout: 5000 });
+        results.tests.httpRequest = {
             status: 'working',
-            ip: response.data.origin,
-            note: 'This IP is what YouTube sees from your server'
+            serverIP: response.data.origin
         };
     } catch (error) {
-        results.tests.serverIP = {
+        results.tests.httpRequest = {
             status: 'failed',
             error: error.message
         };
     }
 
-    // Test 5: YouTube oEmbed API (most reliable test for servers)
+    // Test 5: YouTube oEmbed API
     try {
         const axios = require('axios');
         const testVideoId = 'dQw4w9WgXcQ'; // Rick Roll - always available
         const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${testVideoId}&format=json`;
         
         const response = await axios.get(oembedUrl, {
-            headers: { 'User-Agent': getUserAgent() },
-            timeout: 12000
+            headers: {
+                'User-Agent': getUserAgent()
+            },
+            timeout: 10000
         });
 
         results.tests.youtubeOEmbed = {
             status: 'working',
             title: response.data.title,
-            author: response.data.author_name,
-            note: 'This is the most reliable method for servers'
+            author: response.data.author_name
         };
     } catch (error) {
         results.tests.youtubeOEmbed = {
             status: 'failed',
             error: error.message,
-            statusCode: error.response?.status,
-            note: 'If this fails, YouTube is blocking your server IP'
+            statusCode: error.response?.status
         };
     }
 
-    // Test 6: ytdl-core with server optimizations
+    // Test 6: ytdl-core with test video
     try {
         const ytdl = require('@distube/ytdl-core');
         const testUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
         
-        const agent = createYtdlAgent();
         const info = await ytdl.getBasicInfo(testUrl, {
-            agent: agent,
             requestOptions: {
-                timeout: 15000,
-                headers: { 'User-Agent': getUserAgent() }
+                headers: {
+                    'User-Agent': getUserAgent()
+                }
             }
         });
-        
-        results.tests.ytdlServerOptimized = {
+        results.tests.ytdlBasicInfo = {
             status: 'working',
             videoId: info.videoDetails.videoId,
-            title: info.videoDetails.title,
-            note: 'Server-optimized ytdl-core is working'
+            title: info.videoDetails.title
         };
     } catch (error) {
-        results.tests.ytdlServerOptimized = {
+        results.tests.ytdlBasicInfo = {
             status: 'failed',
             error: error.message,
-            errorType: error.name,
-            note: 'ytdl-core blocked by YouTube on this server'
+            errorType: error.name
         };
     }
 
-    // Server environment analysis
-    results.serverAnalysis = {
-        isServerless: !!(process.env.VERCEL || process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME),
-        platform: process.env.VERCEL ? 'Vercel' : process.env.NETLIFY ? 'Netlify' : 'Unknown',
-        recommendation: results.tests.youtubeOEmbed?.status === 'working' 
-            ? 'Server can access YouTube - limited functionality expected'
-            : 'Server blocked by YouTube - consider dedicated server or client-side solutions'
-    };
-
     return res.json({
         success: true,
-        message: 'YouTube debug information (server-optimized)',
+        message: 'YouTube debug information',
         debug: results
     });
 };
