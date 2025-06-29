@@ -2,7 +2,7 @@ const express = require('express');
 require('dotenv').config();
 
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || 'localhost';
+const HOST = process.env.NODE_ENV === 'production' ? '0.0.0.0' : (process.env.HOST || 'localhost');
 
 // Import the app
 let app;
