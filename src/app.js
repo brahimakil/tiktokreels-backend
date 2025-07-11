@@ -16,7 +16,7 @@ const getAllowedOrigins = () => {
     ];
 
     const productionOrigins = [
-        'https://tiktokreels-backend.onrender.com'
+        'https://tiktokreels-backend.vercel.app'
     ];
 
     // In production, allow both local (for testing) and production origins
