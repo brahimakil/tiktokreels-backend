@@ -37,7 +37,9 @@ const corsOptions = {
         'http://127.0.0.1:5173',   // IPv4 version
         'http://127.0.0.1:3000',   // IPv4 version
         'https://tiktokreels.vercel.app',           // ADD THIS LINE
-        'https://tiktokreels-backend.vercel.app'    // ADD THIS LINE
+        'https://tiktokreels-backend.vercel.app',   // ADD THIS LINE
+        'https://tiktokreels.com',                  // ADD THIS LINE
+        'https://www.tiktokreels.com'               // ADD THIS LINE
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
